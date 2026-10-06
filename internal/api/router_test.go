@@ -11,6 +11,7 @@ import (
 
 	"github.com/wyw14/cry-103/internal/feed"
 	"github.com/wyw14/cry-103/internal/incident"
+	"github.com/wyw14/cry-103/internal/inventory"
 	"github.com/wyw14/cry-103/internal/landing"
 	"github.com/wyw14/cry-103/internal/otdr"
 	"github.com/wyw14/cry-103/internal/platform"
@@ -29,7 +30,12 @@ func testServer(t *testing.T) *Server {
 	clock := fixedClock{now: time.Date(2026, 8, 24, 3, 0, 0, 0, time.UTC)}
 	ids := platform.UUIDGenerator{}
 	registry := topology.NewRegistry()
-	if _, err := registry.Register("S3", topology.PathPrimary, clock.Now()); err != nil {
+	catalog := inventory.NewCatalog(clock.Now)
+	if err := seedTestCatalog(catalog); err != nil {
+		t.Fatal(err)
+	}
+	guard := inventory.NewGuard(catalog, registry, clock.Now)
+	if _, err := guard.Activate("S3", topology.PathPrimary); err != nil {
 		t.Fatal(err)
 	}
 	target, err := span.New("S3", "S3", 126, clock.Now())
@@ -41,7 +47,7 @@ func testServer(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 	drainer := route.NewDrainer(0)
-	activator := route.NewActivator(registry)
+	activator := route.NewActivator(guard)
 	receipts := landing.NewReceiptRegistry()
 	permitService := repair.NewPermitService(feed.NewIsolationService(), receipts, ids, clock.Now)
 	circuit, err := feed.NewCircuit("B", "east", clock.Now())
@@ -57,13 +63,14 @@ func testServer(t *testing.T) *Server {
 	projector := repeater.NewHealthProjector(lifecycle, 85)
 	projector.Register(repeaterAsset)
 	repository := telemetry.NewRepository()
-	acceptance := repair.NewAcceptanceService(switchover.NewRestorer(drainer, activator, registry, ids, clock.Now), clock.Now)
+	acceptance := repair.NewAcceptanceService(switchover.NewRestorer(drainer, activator, ids, clock.Now), clock.Now)
 	acceptance.Register("S3", target, path)
 	services := &Services{
 		Clock: clock, IDs: ids, Journal: store.NewJournal(filepath.Join(t.TempDir(), "events.jsonl")),
+		Catalog: catalog, InventoryGuard: guard,
 		Spans: map[string]*span.Span{"S3": target}, Routes: map[string]*route.Route{"R-S3": path},
 		Repeaters: map[string]*repeater.Repeater{"R07": repeaterAsset}, Topology: registry,
-		OTDR:        otdr.NewSessionService(registry, landing.NewScanner(registry, 0), ids, clock.Now),
+		OTDR:        otdr.NewSessionService(guard, landing.NewScanner(guard, 0), ids, clock.Now),
 		Switchovers: switchover.NewSessionService(drainer, activator, ids, clock.Now, time.Second),
 		Permits:     permitService, Receipts: receipts, Acceptance: acceptance,
 		Telemetry: telemetry.NewIngestor(repository, clock.Now, projector), TelemetryRepository: repository,
@@ -78,6 +85,33 @@ type fixedClock struct {
 
 func (c fixedClock) Now() time.Time {
 	return c.now
+}
+
+func seedTestCatalog(catalog *inventory.Catalog) error {
+	if _, _, err := catalog.RegisterSite(inventory.Site{ID: "east", Name: "East"}, 0); err != nil {
+		return err
+	}
+	if _, _, err := catalog.RegisterSite(inventory.Site{ID: "west", Name: "West"}, 0); err != nil {
+		return err
+	}
+	register := func(id, cablePath string) error {
+		_, _, err := catalog.RegisterSegment(inventory.CableSegment{
+			ID: id, SpanID: "S3", Path: cablePath, FromSite: "east", ToSite: "west", LengthKM: 126,
+		}, 0)
+		return err
+	}
+	if err := register("SEG-S3-P", "primary"); err != nil {
+		return err
+	}
+	if err := register("SEG-S3-B", "protection"); err != nil {
+		return err
+	}
+	_, _, err := catalog.DeclareRoutePath(inventory.RoutePath{
+		ID: "LINE-S3", SpanID: "S3", RouteID: "R-S3",
+		PrimarySiteA: "east", PrimarySiteZ: "west",
+		ProtectionSiteA: "east", ProtectionSiteZ: "west",
+	}, 0)
+	return err
 }
 
 func TestHealthAndScanHTTPFlow(t *testing.T) {

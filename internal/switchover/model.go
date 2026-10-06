@@ -24,11 +24,13 @@ type Event struct {
 }
 
 type Snapshot struct {
-	ID        string    `json:"id"`
-	RouteID   string    `json:"route_id"`
-	State     State     `json:"state"`
-	Events    []Event   `json:"events"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID              string    `json:"id"`
+	RouteID         string    `json:"route_id"`
+	State           State     `json:"state"`
+	CatalogRevision uint64    `json:"catalog_revision"`
+	Generation      uint64    `json:"topology_generation"`
+	Events          []Event   `json:"events"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type Operation struct {
@@ -36,8 +38,11 @@ type Operation struct {
 	snapshot Snapshot
 }
 
-func NewOperation(id, routeID string, at time.Time) *Operation {
-	return &Operation{snapshot: Snapshot{ID: id, RouteID: routeID, State: StateCreated, UpdatedAt: at.UTC()}}
+func NewOperation(id, routeID string, catalogRevision, generation uint64, at time.Time) *Operation {
+	return &Operation{snapshot: Snapshot{
+		ID: id, RouteID: routeID, State: StateCreated,
+		CatalogRevision: catalogRevision, Generation: generation, UpdatedAt: at.UTC(),
+	}}
 }
 
 func (o *Operation) Snapshot() Snapshot {

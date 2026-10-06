@@ -29,7 +29,7 @@ func (s *Server) startScan(writer http.ResponseWriter, request *http.Request) {
 	}
 	trace, err := s.services.OTDR.Run(request.Context(), spanID, input.StationID, input.LengthKM, input.Chunks)
 	if err != nil {
-		writeError(writer, http.StatusConflict, err)
+		writeOperationalError(writer, err)
 		return
 	}
 	if err := s.services.Persist("otdr-scan", trace.ID, trace); err != nil {

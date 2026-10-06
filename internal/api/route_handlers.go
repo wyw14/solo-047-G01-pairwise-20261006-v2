@@ -20,7 +20,7 @@ func (s *Server) startSwitchover(writer http.ResponseWriter, request *http.Reque
 	}
 	result, err := s.services.Switchovers.Failover(request.Context(), target)
 	if err != nil {
-		writeError(writer, http.StatusConflict, err)
+		writeOperationalError(writer, err)
 		return
 	}
 	if err := s.services.Persist("switchover", result.ID, result); err != nil {

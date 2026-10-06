@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/wyw14/cry-103/internal/inventory"
 	"github.com/wyw14/cry-103/internal/topology"
 )
 
@@ -18,14 +19,17 @@ type TraceChunk struct {
 }
 
 type Scanner struct {
-	topology *topology.Registry
-	delay    time.Duration
+	guard *inventory.Guard
+	delay time.Duration
 }
 
-func NewScanner(registry *topology.Registry, delay time.Duration) *Scanner {
-	return &Scanner{topology: registry, delay: delay}
+func NewScanner(guard *inventory.Guard, delay time.Duration) *Scanner {
+	return &Scanner{guard: guard, delay: delay}
 }
 
+// ScanPinned collects chunks against one fixed topology snapshot and fails if
+// either the cross-connect generation or the asset catalog revision moved
+// while the scan was in flight.
 func (s *Scanner) ScanPinned(ctx context.Context, snapshot topology.Snapshot, stationID string, chunks int) ([]TraceChunk, error) {
 	if chunks < 1 {
 		return nil, fmt.Errorf("chunk count must be positive")
@@ -37,8 +41,12 @@ func (s *Scanner) ScanPinned(ctx context.Context, snapshot topology.Snapshot, st
 		}
 		result = append(result, synthesizeChunk(snapshot, stationID, index))
 	}
-	if !s.topology.Matches(snapshot.SpanID, snapshot.Generation) {
+	registry := s.guard.Topology()
+	if !registry.Matches(snapshot.SpanID, snapshot.Generation) {
 		return nil, fmt.Errorf("topology generation changed during pinned scan")
+	}
+	if !registry.Pinned(snapshot.SpanID, snapshot.CatalogRevision) {
+		return nil, fmt.Errorf("asset catalog revision changed during pinned scan")
 	}
 	return result, nil
 }

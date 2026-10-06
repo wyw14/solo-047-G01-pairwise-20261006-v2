@@ -7,7 +7,7 @@ import (
 
 func TestCrossConnectUsesBreakBeforeMake(t *testing.T) {
 	registry := NewRegistry()
-	if _, err := registry.Register("S3", PathPrimary, time.Now()); err != nil {
+	if _, err := registry.Register("S3", PathPrimary, 1, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := registry.Connect("S3", PathProtection, time.Now()); err == nil {

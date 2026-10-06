@@ -10,14 +10,16 @@ import (
 )
 
 type Trace struct {
-	ID          string               `json:"id"`
-	SpanID      string               `json:"span_id"`
-	Generation  uint64               `json:"generation"`
-	Path        topology.Path        `json:"path"`
-	Chunks      []landing.TraceChunk `json:"chunks"`
-	Location    span.FaultLocation   `json:"location"`
-	StartedAt   time.Time            `json:"started_at"`
-	CompletedAt time.Time            `json:"completed_at"`
+	ID              string               `json:"id"`
+	SpanID          string               `json:"span_id"`
+	StationID       string               `json:"station_id"`
+	CatalogRevision uint64               `json:"catalog_revision"`
+	Generation      uint64               `json:"generation"`
+	Path            topology.Path        `json:"path"`
+	Chunks          []landing.TraceChunk `json:"chunks"`
+	Location        span.FaultLocation   `json:"location"`
+	StartedAt       time.Time            `json:"started_at"`
+	CompletedAt     time.Time            `json:"completed_at"`
 }
 
 func assemble(trace Trace, chunks []landing.TraceChunk, lengthKM float64, completedAt time.Time) (Trace, error) {

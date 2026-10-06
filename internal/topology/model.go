@@ -14,17 +14,21 @@ const (
 )
 
 type Snapshot struct {
-	SpanID      string    `json:"span_id"`
-	Generation  uint64    `json:"generation"`
-	ActivePath  Path      `json:"active_path"`
-	ChangedAt   time.Time `json:"changed_at"`
-	PrimaryOpen bool      `json:"primary_open"`
-	ProtectOpen bool      `json:"protection_open"`
+	SpanID          string    `json:"span_id"`
+	Generation      uint64    `json:"generation"`
+	CatalogRevision uint64    `json:"catalog_revision"`
+	ActivePath      Path      `json:"active_path"`
+	ChangedAt       time.Time `json:"changed_at"`
+	PrimaryOpen     bool      `json:"primary_open"`
+	ProtectOpen     bool      `json:"protection_open"`
 }
 
 func (s Snapshot) Validate() error {
 	if s.SpanID == "" || s.Generation == 0 {
 		return errors.New("topology span and generation are required")
+	}
+	if s.CatalogRevision == 0 {
+		return errors.New("topology must be pinned to an asset catalog revision")
 	}
 	if s.ActivePath != PathPrimary && s.ActivePath != PathProtection {
 		return errors.New("active path is invalid")

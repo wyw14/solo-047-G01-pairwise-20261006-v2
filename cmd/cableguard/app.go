@@ -8,6 +8,7 @@ import (
 	"github.com/wyw14/cry-103/internal/api"
 	"github.com/wyw14/cry-103/internal/feed"
 	"github.com/wyw14/cry-103/internal/incident"
+	"github.com/wyw14/cry-103/internal/inventory"
 	"github.com/wyw14/cry-103/internal/landing"
 	"github.com/wyw14/cry-103/internal/otdr"
 	"github.com/wyw14/cry-103/internal/platform"
@@ -30,7 +31,12 @@ func buildServices(cfg config) (*api.Services, error) {
 	journal := store.NewJournal(filepath.Join(cfg.Data, "events.jsonl"))
 
 	topologies := topology.NewRegistry()
-	if _, err := topologies.Register("S3", topology.PathPrimary, now()); err != nil {
+	catalog := inventory.NewCatalog(now)
+	if err := seedCatalog(catalog); err != nil {
+		return nil, err
+	}
+	guard := inventory.NewGuard(catalog, topologies, now)
+	if _, err := guard.Activate("S3", topology.PathPrimary); err != nil {
 		return nil, err
 	}
 	spanS3, err := span.New("S3", "South China Sea S3", 126.4, now())
@@ -63,12 +69,12 @@ func buildServices(cfg config) (*api.Services, error) {
 	healthProjector.Register(repeaterR07)
 	ingestor := telemetry.NewIngestor(telemetryRepository, now, healthProjector)
 
-	scanner := landing.NewScanner(topologies, 2*time.Millisecond)
-	otdrService := otdr.NewSessionService(topologies, scanner, ids, now)
+	scanner := landing.NewScanner(guard, 2*time.Millisecond)
+	otdrService := otdr.NewSessionService(guard, scanner, ids, now)
 	drainer := route.NewDrainer(4 * time.Millisecond)
-	activator := route.NewActivator(topologies)
+	activator := route.NewActivator(guard)
 	switchovers := switchover.NewSessionService(drainer, activator, ids, now, 25*time.Millisecond)
-	restorer := switchover.NewRestorer(drainer, activator, topologies, ids, now)
+	restorer := switchover.NewRestorer(drainer, activator, ids, now)
 
 	receipts := landing.NewReceiptRegistry()
 	isolation := feed.NewIsolationService()
@@ -115,6 +121,7 @@ func buildServices(cfg config) (*api.Services, error) {
 
 	return &api.Services{
 		Clock: clock, IDs: ids, Journal: journal,
+		Catalog: catalog, InventoryGuard: guard,
 		Spans: map[string]*span.Span{"S3": spanS3}, Routes: map[string]*route.Route{"R-S3": routeS3},
 		Repeaters: map[string]*repeater.Repeater{"R07": repeaterR07}, Topology: topologies,
 		OTDR: otdrService, Switchovers: switchovers, Permits: permits, Receipts: receipts,
@@ -128,4 +135,38 @@ func buildServices(cfg config) (*api.Services, error) {
 
 func permitsCircuit(service *repair.PermitService, stationID, circuitID string) (*feed.Circuit, bool) {
 	return service.Circuit(stationID, circuitID)
+}
+
+// seedCatalog registers the physical asset layout for the managed S3 line:
+// both landing sites, the primary and protection cable segments, and the
+// primary/protection path declaration tying them together. Every registration
+// goes through catalog validation, so the booted service is guaranteed a
+// complete, traceable topology.
+func seedCatalog(catalog *inventory.Catalog) error {
+	if _, _, err := catalog.RegisterSite(inventory.Site{ID: "east", Name: "East Landing"}, 0); err != nil {
+		return err
+	}
+	if _, _, err := catalog.RegisterSite(inventory.Site{ID: "west", Name: "West Landing"}, 0); err != nil {
+		return err
+	}
+	if _, _, err := catalog.RegisterSegment(inventory.CableSegment{
+		ID: "SEG-S3-P", SpanID: "S3", Path: "primary",
+		FromSite: "east", ToSite: "west", LengthKM: 126.4,
+	}, 0); err != nil {
+		return err
+	}
+	if _, _, err := catalog.RegisterSegment(inventory.CableSegment{
+		ID: "SEG-S3-B", SpanID: "S3", Path: "protection",
+		FromSite: "east", ToSite: "west", LengthKM: 134.8,
+	}, 0); err != nil {
+		return err
+	}
+	if _, _, err := catalog.DeclareRoutePath(inventory.RoutePath{
+		ID: "LINE-S3", SpanID: "S3", RouteID: "R-S3",
+		PrimarySiteA: "east", PrimarySiteZ: "west",
+		ProtectionSiteA: "east", ProtectionSiteZ: "west",
+	}, 0); err != nil {
+		return err
+	}
+	return nil
 }

@@ -22,7 +22,15 @@ func NewSessionService(drainer *route.Drainer, activator *route.Activator, ids p
 }
 
 func (s *SessionService) Failover(ctx context.Context, target *route.Route) (Snapshot, error) {
-	operation := NewOperation(s.ids.New("switch"), target.Snapshot().ID, s.now())
+	spanID := target.Snapshot().SpanID
+	// Refuse to fail over a line that is not pinned to the current asset
+	// catalog revision; the operation record keeps both identifiers for audit.
+	topologySnapshot, _, err := s.activator.Guard().PinnedSnapshot(spanID)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	operation := NewOperation(s.ids.New("switch"), target.Snapshot().ID,
+		topologySnapshot.CatalogRevision, topologySnapshot.Generation, s.now())
 	operation.record(StateDrainingPrimary, "primary-drain", "draining failed primary path", s.now())
 	drainTimeout := s.drainTimeout
 	if drainTimeout <= 0 {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/wyw14/cry-103/internal/feed"
 	"github.com/wyw14/cry-103/internal/incident"
+	"github.com/wyw14/cry-103/internal/inventory"
 	"github.com/wyw14/cry-103/internal/landing"
 	"github.com/wyw14/cry-103/internal/otdr"
 	"github.com/wyw14/cry-103/internal/platform"
@@ -25,6 +26,8 @@ type Services struct {
 	Clock               platform.Clock
 	IDs                 platform.IDGenerator
 	Journal             *store.Journal
+	Catalog             *inventory.Catalog
+	InventoryGuard      *inventory.Guard
 	Spans               map[string]*span.Span
 	Routes              map[string]*route.Route
 	Repeaters           map[string]*repeater.Repeater

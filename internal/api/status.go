@@ -4,6 +4,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/wyw14/cry-103/internal/inventory"
 	"github.com/wyw14/cry-103/internal/repeater"
 	"github.com/wyw14/cry-103/internal/route"
 	"github.com/wyw14/cry-103/internal/span"
@@ -13,6 +14,7 @@ import (
 
 type SystemStatus struct {
 	GeneratedAt time.Time           `json:"generated_at"`
+	Catalog     inventory.Snapshot  `json:"catalog"`
 	Spans       []span.Snapshot     `json:"spans"`
 	Routes      []route.Snapshot    `json:"routes"`
 	Repeaters   []repeater.Snapshot `json:"repeaters"`
@@ -29,10 +31,68 @@ type EventPage struct {
 	Items  []store.Record `json:"items"`
 }
 
+// InventoryView is the catalog plus its physical completeness audit. It is the
+// single payload for the asset directory page.
+type InventoryView struct {
+	Revision      uint64                   `json:"revision"`
+	SpanRevisions map[string]uint64        `json:"span_revisions"`
+	UpdatedAt     time.Time                `json:"updated_at"`
+	Sites         []inventory.Site         `json:"sites"`
+	Segments      []inventory.CableSegment `json:"cable_segments"`
+	RoutePaths    []inventory.RoutePath    `json:"route_paths"`
+	Integrity     []inventory.Finding      `json:"integrity"`
+}
+
+func (s *Services) InventoryView() InventoryView {
+	catalog := s.Catalog.Snapshot()
+	findings := inventory.Audit(catalog, s.inventoryOperands())
+	return InventoryView{
+		Revision: catalog.Revision, SpanRevisions: catalog.SpanRevisions, UpdatedAt: catalog.UpdatedAt,
+		Sites: catalog.Sites, Segments: catalog.Segments, RoutePaths: catalog.RoutePaths,
+		Integrity: findings,
+	}
+}
+
+func (s *Services) inventoryOperands() inventory.Operands {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	spanIDs := make([]string, 0, len(s.Spans))
+	for id := range s.Spans {
+		spanIDs = append(spanIDs, id)
+	}
+	sort.Strings(spanIDs)
+	spanOperands := make([]inventory.SpanOperand, 0, len(spanIDs))
+	topologies := make([]topology.Snapshot, 0, len(spanIDs))
+	for _, id := range spanIDs {
+		snapshot := s.Spans[id].Snapshot()
+		spanOperands = append(spanOperands, inventory.SpanOperand{
+			ID: snapshot.ID, LengthKM: snapshot.LengthKM, State: string(snapshot.State),
+		})
+		if topologySnapshot, err := s.Topology.Snapshot(id); err == nil {
+			topologies = append(topologies, topologySnapshot)
+		}
+	}
+	routeIDs := make([]string, 0, len(s.Routes))
+	for id := range s.Routes {
+		routeIDs = append(routeIDs, id)
+	}
+	sort.Strings(routeIDs)
+	routeOperands := make([]inventory.RouteOperand, 0, len(routeIDs))
+	for _, id := range routeIDs {
+		snapshot := s.Routes[id].Snapshot()
+		routeOperands = append(routeOperands, inventory.RouteOperand{
+			ID: snapshot.ID, SpanID: snapshot.SpanID,
+			ActivePath: snapshot.ActivePath, TrafficBPS: snapshot.TrafficBPS,
+		})
+	}
+	return inventory.Operands{Spans: spanOperands, Routes: routeOperands, Topologies: topologies}
+}
+
 func (s *Services) Status() (SystemStatus, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	result := SystemStatus{GeneratedAt: s.Clock.Now().UTC()}
+	catalog := s.Catalog.Snapshot()
+	result := SystemStatus{GeneratedAt: s.Clock.Now().UTC(), Catalog: catalog}
 	spanIDs := make([]string, 0, len(s.Spans))
 	for id := range s.Spans {
 		spanIDs = append(spanIDs, id)
@@ -70,7 +130,7 @@ func (s *Services) Status() (SystemStatus, error) {
 		return SystemStatus{}, err
 	}
 	result.EventCount = len(records)
-	result.Integrity = auditIntegrity(result.Spans, result.Routes, result.Topologies)
+	result.Integrity = auditIntegrity(catalog, result.Spans, result.Routes, result.Topologies)
 	for _, finding := range result.Integrity {
 		if finding.Severity == "critical" {
 			result.Warnings = append(result.Warnings, finding.Message)
