@@ -4,6 +4,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/wyw14/cry-103/internal/catalog"
 	"github.com/wyw14/cry-103/internal/repeater"
 	"github.com/wyw14/cry-103/internal/route"
 	"github.com/wyw14/cry-103/internal/span"
@@ -13,6 +14,7 @@ import (
 
 type SystemStatus struct {
 	GeneratedAt time.Time           `json:"generated_at"`
+	Catalog     *catalog.Snapshot   `json:"catalog,omitempty"`
 	Spans       []span.Snapshot     `json:"spans"`
 	Routes      []route.Snapshot    `json:"routes"`
 	Repeaters   []repeater.Snapshot `json:"repeaters"`
@@ -33,6 +35,14 @@ func (s *Services) Status() (SystemStatus, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := SystemStatus{GeneratedAt: s.Clock.Now().UTC()}
+	catalogSnapshot, catalogErr := s.Catalog.Current()
+	catalogReady := catalogErr == nil
+	if catalogReady {
+		catalogView := catalogSnapshot
+		result.Catalog = &catalogView
+	} else {
+		result.Warnings = append(result.Warnings, catalogErr.Error())
+	}
 	spanIDs := make([]string, 0, len(s.Spans))
 	for id := range s.Spans {
 		spanIDs = append(spanIDs, id)
@@ -70,7 +80,7 @@ func (s *Services) Status() (SystemStatus, error) {
 		return SystemStatus{}, err
 	}
 	result.EventCount = len(records)
-	result.Integrity = auditIntegrity(result.Spans, result.Routes, result.Topologies)
+	result.Integrity = auditIntegrity(catalogSnapshot, catalogReady, result.Spans, result.Routes, result.Topologies)
 	for _, finding := range result.Integrity {
 		if finding.Severity == "critical" {
 			result.Warnings = append(result.Warnings, finding.Message)

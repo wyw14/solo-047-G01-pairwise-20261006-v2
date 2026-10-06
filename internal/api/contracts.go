@@ -3,6 +3,7 @@ package api
 import (
 	"time"
 
+	"github.com/wyw14/cry-103/internal/catalog"
 	"github.com/wyw14/cry-103/internal/otdr"
 )
 
@@ -76,4 +77,11 @@ type IncidentRequest struct {
 	TraceID      string  `json:"trace_id"`
 	DistanceKM   float64 `json:"distance_km"`
 	RequiresPeer bool    `json:"requires_peer"`
+}
+
+type CatalogConfigurationRequest struct {
+	Generation uint64                `json:"generation"`
+	Stations   []catalog.Station     `json:"stations"`
+	Segments   []catalog.Segment     `json:"segments"`
+	Paths      []catalog.PathBinding `json:"paths"`
 }

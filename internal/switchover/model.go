@@ -24,11 +24,13 @@ type Event struct {
 }
 
 type Snapshot struct {
-	ID        string    `json:"id"`
-	RouteID   string    `json:"route_id"`
-	State     State     `json:"state"`
-	Events    []Event   `json:"events"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                string    `json:"id"`
+	RouteID           string    `json:"route_id"`
+	SpanID            string    `json:"span_id"`
+	State             State     `json:"state"`
+	CatalogGeneration uint64    `json:"catalog_generation"`
+	Events            []Event   `json:"events"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type Operation struct {
@@ -38,6 +40,15 @@ type Operation struct {
 
 func NewOperation(id, routeID string, at time.Time) *Operation {
 	return &Operation{snapshot: Snapshot{ID: id, RouteID: routeID, State: StateCreated, UpdatedAt: at.UTC()}}
+}
+
+// bindCatalog pins the operation to the catalog revision and physical span it
+// operates on, so every switchover event is traceable to one asset directory.
+func (o *Operation) bindCatalog(spanID string, catalogGeneration uint64) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.snapshot.SpanID = spanID
+	o.snapshot.CatalogGeneration = catalogGeneration
 }
 
 func (o *Operation) Snapshot() Snapshot {
